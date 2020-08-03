@@ -6,12 +6,14 @@ history = fromJSON(url("https://raw.githubusercontent.com/randomtruffles/Dominio
 
 reduced = list()
 
+#get divisions, names, places
 for (i in 1:length(history)) {
-   division = unname(unlist(lapply(history[[i]], function(div) {if (length(div) > 1) {rep(div$name, length(div$members))}})))
-   player = unname(unlist(lapply(history[[i]], function(div) {if (length(div) > 1) {sapply(div$members, function(pl) {pl$name})}})))
-   place = unname(unlist(lapply(history[[i]], function(div) {if (length(div) > 1) {sapply(div$members, function(pl) {pl$rank})}})))
-   if (tolower(player[1]) != history[[i]]$champion) {player[1:2] = player[2:1]}
-   reduced[[i]] = data.frame(player, tier = sapply(division, substr, 1, 1), division, place, stringsAsFactors = FALSE)
+  division = unname(unlist(lapply(history[[i]], function(div) {if (length(div) > 1) {rep(div$name, length(div$members))}})))
+  player = unname(unlist(lapply(history[[i]], function(div) {if (length(div) > 1) {sapply(div$members, function(pl) {pl$name})}})))
+  place = unname(unlist(lapply(history[[i]], function(div) {if (length(div) > 1) {sapply(div$members, function(pl) {pl$rank})}})))
+  #switch top 2 for championship
+  if (tolower(player[1]) != history[[i]]$champion) {player[1:2] = player[2:1]}
+  reduced[[i]] = data.frame(player, tier = sapply(division, substr, 1, 1), division, place, stringsAsFactors = FALSE)
 }
 
 names(reduced) = names(history)
@@ -21,11 +23,15 @@ for (frame in reduced[2:length(reduced)]) {
   history = rbind(history, frame)
 }
 
+#get season numbers
 history$season = as.integer(rep(names(reduced), sapply(reduced, (function(s) {length(s$player)}))))
+
+#name change not in history
 history$player[history$player == "The Do-Operator"] = "Anders"
 
-remove(reduced)
+remove(reduced, frame, division, place, player)
 
+#produce table of player counts by tier per season
 library(plyr)
 
 counts = ddply(history, c("season","tier"), summarize, divisions = nunique(division), players = length(player)) 
@@ -35,8 +41,10 @@ counts$lfrac = counts$players/rep(daply(counts, "season", function(df) sum(df$pl
 
 library(ggplot2)
 
+#league division colors
 cols = c("A" = "#FF00FF", "B" = "#9900FF", "C" = "#0000FF", "D" = "#4A85E8", "E" = "#00FFFF", "F" = "#00FF00", "G" = "#FFFF00", "H" = "#FF9800", "I" = "#FF0000", "J" = "#980000")
 
+#background for player history (also shows players per season)
 back = function(uptier = "J", from = 1, to = max(counts$season), prop = FALSE, oldE = FALSE) {
   
   ts = rev(LETTERS[1:10])
@@ -54,6 +62,7 @@ back = function(uptier = "J", from = 1, to = max(counts$season), prop = FALSE, o
   }
 }
 
+#player history chart
 pChart = function(player, from = NULL, to = NULL, prop = FALSE, full = FALSE) {
   
   if (prop) {full = TRUE}
@@ -106,10 +115,55 @@ pChart = function(player, from = NULL, to = NULL, prop = FALSE, full = FALSE) {
   plt
 }
 
+#find players with more than 1 season
 PsofInterest = unique(history$player)[sapply(unique(history$player), function(p) {length(history$player[history$player == p]) > 1})]
 
+#save chart images for those players
 a_ply(PsofInterest, 1, function(p) {
   pChart(p)
   ggsave(paste0("./Player Charts/", p, ".png"), height = 8, width = 11)
 })
 
+#percentages in history
+
+numAt = sapply(unique(history$tier), function(t) {length(unique(tolower(history$player[history$tier == t])))})
+numStay = sapply(unique(history$tier), function(t) {length(unique(tolower(history$player[(history$tier == t) & (history$place < 5)])))})
+
+transitions = data.frame(from = rep(c(LETTERS[2:8], "any"), 1:8), to = unlist(lapply(1:8, function(n) LETTERS[1:n])))
+
+count = ddply(transitions, c("from", "to"), function(df) {
+  if (df$from == "any") {return (numAt[df$to])}
+  players = tolower(history$player)
+  sum(sapply(unique(players[history$tier == df$from]), function (p) {
+    any(min(history$season[(players == p) & (history$tier == df$from)]) < history$season[(players == p) & (history$tier == df$to)])
+  }))
+})
+names(count)[3] = "v"
+
+transitions$count = c(count$v[count$from != "any"], count$v[count$from == "any"])
+rm(count)
+
+
+
+#top of league power chart
+
+tophist = history[history$tier < "D",]
+
+#function giving points for a season
+seaspoint = function(player, season) {
+  interest = (tophist$player == player) & (tophist$season == season)
+  if (!any(interest)) {return (0)}
+  numPl = sum(tophist$division[(tophist$season == season)] == tophist$division[interest])
+  pointMap = c(
+    A1 = 10, A2 = 9, A3 = 8, A4 = 8, A5 = 7, A6 = 7,
+    B1 = 6, B2 = 5, B3 = 5, B4 = 5, B5 = 4, B6 = 4,
+    C1 = 3, C2 = 2, C3 = 2, C4 = 2, C5 = 1, C6 = 1
+  )
+  if (numPl <= 6) {
+    return (unname(pointMap[paste0(tophist$tier[interest],tophist$place[interest])]))
+  } else { #we need to adjust for 7 player division
+    r6equiv = tophist$place[interest]
+    if (r6equiv > 4) {r6equiv = r6equiv - 1}
+    return (unname(pointMap[paste0(tophist$tier[interest],r6equiv)]))
+  }
+}
