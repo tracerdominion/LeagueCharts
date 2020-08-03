@@ -47,7 +47,7 @@ cols = c("A" = "#FF00FF", "B" = "#9900FF", "C" = "#0000FF", "D" = "#4A85E8", "E"
 #background for player history (also shows players per season)
 back = function(uptier = "J", from = 1, to = max(counts$season), prop = FALSE, oldE = FALSE) {
   
-  ts = rev(LETTERS[1:10])
+  ts = rev(LETTERS[10:1])
   
   inforange = (counts$tier <= uptier) & (counts$season >= from) & (counts$season <= to)
   if (oldE) {
@@ -124,7 +124,7 @@ a_ply(PsofInterest, 1, function(p) {
   ggsave(paste0("./Player Charts/", p, ".png"), height = 8, width = 11)
 })
 
-#percentages in history
+#transition percentages
 
 numAt = sapply(unique(history$tier), function(t) {length(unique(tolower(history$player[history$tier == t])))})
 numStay = sapply(unique(history$tier), function(t) {length(unique(tolower(history$player[(history$tier == t) & (history$place < 5)])))})
@@ -143,7 +143,15 @@ names(count)[3] = "v"
 transitions$count = c(count$v[count$from != "any"], count$v[count$from == "any"])
 rm(count)
 
+transitions = rbind(transitions, data.frame(from = "any", to = "any", count = length(unique(history$player))))
 
+ggplot() + geom_col(data = transitions[(transitions$from != "any") & (transitions$from < "G"),], mapping = aes(x = factor(from, LETTERS[10:1]), y = frac, fill = factor(to, LETTERS[10:1])), position = "dodge") + 
+  scale_fill_manual(values = cols) + guides(fill = guide_legend(title = "Tier Reached", reverse = TRUE)) + xlab("Originating Tier") + ylab("Proportion of Players") + ggtitle("Difficulty of Moving Up")
+
+ggsave("./transitions.png", height = 8, width = 11)
+
+#find fraction from each tier who have promoted to each level
+transitions$frac = transitions$count / rep(transitions$count[transitions$from == "any"][2:9], c(1:7,9))
 
 #top of league power chart
 
