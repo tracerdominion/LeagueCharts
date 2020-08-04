@@ -1,4 +1,14 @@
+#Produces a few plots of interest about Dominion League history
+#Sections:
 #data prep from history
+#players per season
+#player history
+#transition percentages
+#top of league power
+
+##################################################
+#data prep from history
+##################################################
 
 library(jsonlite)
 
@@ -31,23 +41,30 @@ history$player[history$player == "The Do-Operator"] = "Anders"
 
 remove(reduced, frame, division, place, player)
 
-#produce table of player counts by tier per season
-library(plyr)
-
-counts = ddply(history, c("season","tier"), summarize, divisions = nunique(division), players = length(player)) 
-counts$lfrac = counts$players/rep(daply(counts, "season", function(df) sum(df$players)), table(counts$season))
-
+##################################################
 #visualizations
+##################################################
 
 library(ggplot2)
 
 #league division colors
 cols = c("A" = "#FF00FF", "B" = "#9900FF", "C" = "#0000FF", "D" = "#4A85E8", "E" = "#00FFFF", "F" = "#00FF00", "G" = "#FFFF00", "H" = "#FF9800", "I" = "#FF0000", "J" = "#980000")
 
-#background for player history (also shows players per season)
+##################################################
+#players per season - also acts as a background for player history
+##################################################
+
+#produce table of player counts by tier per season
+library(plyr)
+
+counts = ddply(history, c("season","tier"), summarize, divisions = nunique(division), players = length(player))
+#s41 manually
+counts = rbind(counts, data.frame(season = rep(41,10), tier = LETTERS[1:10], divisions = c(1,2,4,4,8,15,15,31,31,31), players = c(6,12,24,24,48,90,90,186,186,186)))
+counts$lfrac = counts$players/rep(daply(counts, "season", function(df) sum(df$players)), table(counts$season))
+
 back = function(uptier = "J", from = 1, to = max(counts$season), prop = FALSE, oldE = FALSE) {
   
-  ts = rev(LETTERS[10:1])
+  ts = LETTERS[10:1]
   
   inforange = (counts$tier <= uptier) & (counts$season >= from) & (counts$season <= to)
   if (oldE) {
@@ -62,7 +79,10 @@ back = function(uptier = "J", from = 1, to = max(counts$season), prop = FALSE, o
   }
 }
 
-#player history chart
+##################################################
+#player history
+##################################################
+
 pChart = function(player, from = NULL, to = NULL, prop = FALSE, full = FALSE) {
   
   if (prop) {full = TRUE}
@@ -105,7 +125,7 @@ pChart = function(player, from = NULL, to = NULL, prop = FALSE, full = FALSE) {
   
   cuts = c(0, which(diff(phist$season) > 1), length(phist$season))
   for (i in 2:length(cuts)) {
-    plt = plt + geom_line(data = phist[(cuts[i-1]+1):cuts[i],], mapping = aes(x = season, y = placement))
+    plt = plt + geom_line(data = phist[(cuts[i-1]+1):cuts[i],], mapping = aes(x = season, y = placement), size = 0.5)
   }
   
   plt = plt + geom_point(data = phist, mapping = aes(x = season, y = placement, shape = champ, size = champ), fill = "yellow") + scale_shape_manual(values = c(15,21)) + scale_size_manual(values = c(3,4)) + guides(shape = FALSE, size = FALSE)
@@ -124,36 +144,55 @@ a_ply(PsofInterest, 1, function(p) {
   ggsave(paste0("./Player Charts/", p, ".png"), height = 8, width = 11)
 })
 
+##################################################
 #transition percentages
+##################################################
 
 numAt = sapply(unique(history$tier), function(t) {length(unique(tolower(history$player[history$tier == t])))})
 numStay = sapply(unique(history$tier), function(t) {length(unique(tolower(history$player[(history$tier == t) & (history$place < 5)])))})
 
-transitions = data.frame(from = rep(c(LETTERS[2:8], "any"), 1:8), to = unlist(lapply(1:8, function(n) LETTERS[1:n])))
+transitions = data.frame(from = rep(c("any", LETTERS[2:8]), c(8,1:7)), to = c(LETTERS[1:8], unlist(lapply(1:7, function(n) LETTERS[1:n]))))
 
 count = ddply(transitions, c("from", "to"), function(df) {
   if (df$from == "any") {return (numAt[df$to])}
   players = tolower(history$player)
   sum(sapply(unique(players[history$tier == df$from]), function (p) {
-    any(min(history$season[(players == p) & (history$tier == df$from)]) < history$season[(players == p) & (history$tier == df$to)])
+    min(history$season[(players == p) & (history$tier == df$from)]) < max(history$season[(players == p) & (history$tier == df$to)])
   }))
 })
 names(count)[3] = "v"
 
-transitions$count = c(count$v[count$from != "any"], count$v[count$from == "any"])
+transitions$count = count$v
 rm(count)
 
-transitions = rbind(transitions, data.frame(from = "any", to = "any", count = length(unique(history$player))))
+stayFirst = ddply(transitions, c("from", "to"), function(df) {
+  if (df$from == "any") {return (numStay[df$to])}
+  players = tolower(history$player)
+  sum(sapply(unique(players[history$tier == df$from]), function (p) {
+    firstSeasonUp = min(history$season[(players == p) & (history$tier == df$to) & (history$season > min(history$season[(players == p) & (history$tier == df$from)]))])
+    if (firstSeasonUp > max(history$season)) {return (FALSE)}
+    history$place[(players == p) & (history$season == firstSeasonUp)] < 5
+  }))
+})
+names(stayFirst)[3] = "v"
 
-ggplot() + geom_col(data = transitions[(transitions$from != "any") & (transitions$from < "G"),], mapping = aes(x = factor(from, LETTERS[10:1]), y = frac, fill = factor(to, LETTERS[10:1])), position = "dodge") + 
-  scale_fill_manual(values = cols) + guides(fill = guide_legend(title = "Tier Reached", reverse = TRUE)) + xlab("Originating Tier") + ylab("Proportion of Players") + ggtitle("Difficulty of Moving Up")
+transitions$stayFirst = stayFirst$v
+rm(stayFirst)
+
+transitions = rbind(data.frame(from = "any", to = "any", count = length(unique(history$player)), stayFirst = length(PsofInterest)), transitions)
+transitions$promoteFrac = transitions$count/rep(transitions$count[transitions$from == "any"], c(9,0:7))
+transitions$stayFrac = transitions$stayFirst/rep(transitions$count[transitions$from == "any"], c(9,0:7))
+transitions = transitions[nrow(transitions):1,]
+
+ggplot(data = transitions[(transitions$from != "any") & (transitions$from < "G"),]) + geom_col(mapping = aes(x = factor(from, LETTERS[10:1]), y = promoteFrac, fill = to), position = position_dodge2(preserve = "single", reverse = TRUE), width = 1) + 
+  geom_errorbar(mapping = aes(x = from, ymin = stayFrac, ymax = stayFrac, color = rep(paste0(strwrap("stayed at or above for more than one season after first promotion", 20), collapse = "\n"),15)), position = position_dodge2(preserve = "single", reverse = TRUE), width = 1) +
+  scale_fill_manual(values = cols) + scale_color_manual(values = "black") + guides(fill = guide_legend(title = "Tier Reached", order = 1), color = guide_legend("")) + xlab("Originating Tier") + ylab("Proportion of Players") + ggtitle("Difficulty of Moving Up")
 
 ggsave("./transitions.png", height = 8, width = 11)
 
-#find fraction from each tier who have promoted to each level
-transitions$frac = transitions$count / rep(transitions$count[transitions$from == "any"][2:9], c(1:7,9))
-
-#top of league power chart
+##################################################
+#top of league power
+##################################################
 
 tophist = history[history$tier < "D",]
 
