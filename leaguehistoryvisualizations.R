@@ -10,6 +10,7 @@
 #data prep from history
 ##################################################
 
+library(plyr)
 library(jsonlite)
 
 history = fromJSON(url("https://raw.githubusercontent.com/randomtruffles/Dominion_League/master/_data/friendly_league_history.json"))[[1]]
@@ -35,9 +36,16 @@ for (frame in reduced[2:length(reduced)]) {
 
 #get season numbers
 history$season = as.integer(rep(names(reduced), sapply(reduced, (function(s) {length(s$player)}))))
+history = history[order(history$season),]
 
 #name change not in history
 history$player[history$player == "The Do-Operator"] = "Anders"
+
+#fix capitalization inconsistencies
+proper = c("Dan Brooks", "ceviri", "squirezucco", "PerryGreen", "LimeTime", "hockeysemlan", "LaLight", "Hannibal6", "Awaclus", "IDontPlayThisGame", "ROGAVKA", "ephesos", "malmerung", "The Jesters Girl", "InconspicuousPanda", "Bonxie", "turtlegods", "Hackibacki", "Napoleon1805", "Makqvist", "Hugovj", "Crazyjok3r", "GeoLib", "PitrPicko", "MarkowKette", "JP Gerber")
+for (p in proper) {
+  history$player[tolower(history$player) == tolower(p)] = p
+}
 
 remove(reduced, frame, division, place, player)
 
@@ -55,7 +63,6 @@ cols = c("A" = "#FF00FF", "B" = "#9900FF", "C" = "#0000FF", "D" = "#4A85E8", "E"
 ##################################################
 
 #produce table of player counts by tier per season
-library(plyr)
 
 counts = ddply(history, c("season","tier"), summarize, divisions = nunique(division), players = length(player))
 #s41 manually
@@ -87,7 +94,7 @@ pChart = function(player, from = NULL, to = NULL, prop = FALSE, full = FALSE) {
   
   if (prop) {full = TRUE}
   
-  phist = history[tolower(history$player) == tolower(player),]
+  phist = history[history$player == player,]
   
   if (is.null(from)) {from = min(phist$season)}
   if (is.null(to)) {to = max(phist$season)}
@@ -155,9 +162,8 @@ transitions = data.frame(from = rep(c("any", LETTERS[2:8]), c(8,1:7)), to = c(LE
 
 count = ddply(transitions, c("from", "to"), function(df) {
   if (df$from == "any") {return (numAt[df$to])}
-  players = tolower(history$player)
-  sum(sapply(unique(players[history$tier == df$from]), function (p) {
-    min(history$season[(players == p) & (history$tier == df$from)]) < max(history$season[(players == p) & (history$tier == df$to)])
+  sum(sapply(unique(history$player[history$tier == df$from]), function (p) {
+    min(history$season[(history$player == p) & (history$tier == df$from)]) < max(history$season[(history$player == p) & (history$tier == df$to)])
   }))
 })
 names(count)[3] = "v"
@@ -167,11 +173,10 @@ rm(count)
 
 stayFirst = ddply(transitions, c("from", "to"), function(df) {
   if (df$from == "any") {return (numStay[df$to])}
-  players = tolower(history$player)
-  sum(sapply(unique(players[history$tier == df$from]), function (p) {
-    firstSeasonUp = min(history$season[(players == p) & (history$tier == df$to) & (history$season > min(history$season[(players == p) & (history$tier == df$from)]))])
+  sum(sapply(unique(history$player[history$tier == df$from]), function (p) {
+    firstSeasonUp = min(history$season[(history$player == p) & (history$tier == df$to) & (history$season > min(history$season[(history$player == p) & (history$tier == df$from)]))])
     if (firstSeasonUp > max(history$season)) {return (FALSE)}
-    history$place[(players == p) & (history$season == firstSeasonUp)] < 5
+    history$place[(history$player == p) & (history$season == firstSeasonUp)] < 5
   }))
 })
 names(stayFirst)[3] = "v"
