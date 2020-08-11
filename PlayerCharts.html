@@ -140,12 +140,12 @@
 			
 			function changePlayer() {
 				player = document.getElementById('player-input').value;
-				document.getElementById('player-input').value = "";
 				allTiers = proportion ? true : document.getElementById('allTiers').checked;
 				makePlot();
 			}
 			
 			function clearPlayer() {
+				document.getElementById('player-input').value = "";
 				player = null;
 				if (userSetRange) {makePlot();} else {resetRange();};
 			}
@@ -181,7 +181,7 @@
 					//data slicing
 					//isolate records for relevant player
 					for (let i = 0; i < placeHistory.length; i++) {
-						if ((placeHistory[i].player == player) && (Number(placeHistory[i].season) >= seasonRange[0]) && (Number(placeHistory[i].season) <= seasonRange[1])) {
+						if ((placeHistory[i].player.toLowerCase() == player.toLowerCase()) && (Number(placeHistory[i].season) >= seasonRange[0]) && (Number(placeHistory[i].season) <= seasonRange[1])) {
 							pHist.push(placeHistory[i]);
 							seasons.push(placeHistory[i].season);
 							tiers.push(placeHistory[i].tier);
