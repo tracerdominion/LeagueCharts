@@ -12,8 +12,15 @@
 
 library(plyr)
 library(jsonlite)
+library(ggplot2)
 
 history = fromJSON(url("https://raw.githubusercontent.com/randomtruffles/Dominion_League/master/_data/friendly_league_history.json"))[[1]]
+#preprocessed version
+history = fromJSON(url("https://raw.githubusercontent.com/randomtruffles/Dominion_League/master/_data/chart_history.json"))
+history$place = as.numeric(history$place)
+history$wins = as.numeric(history$wins)
+history$losses = as.numeric(history$losses)
+history$season = as.numeric(history$season)
 
 reduced = list()
 
@@ -22,9 +29,19 @@ for (i in 1:length(history)) {
   division = unname(unlist(lapply(history[[i]], function(div) {if (length(div) > 1) {rep(div$name, length(div$members))}})))
   player = unname(unlist(lapply(history[[i]], function(div) {if (length(div) > 1) {sapply(div$members, function(pl) {pl$name})}})))
   place = unname(unlist(lapply(history[[i]], function(div) {if (length(div) > 1) {sapply(div$members, function(pl) {pl$rank})}})))
+  wins = unname(unlist(lapply(history[[i]], function(div) {if (length(div) > 1) {sapply(div$members, function(pl) {pl$wins})}})))
+  losses = unname(unlist(lapply(history[[i]], function(div) {if (length(div) > 1) {sapply(div$members, function(pl) {pl$losses})}})))
+  pct = unname(unlist(lapply(history[[i]], function(div) {if (length(div) > 1) {sapply(div$members, function(pl) {pl$pct})}})))
+  standingsColor = unname(unlist(lapply(history[[i]], function(div) {if (length(div) > 1) {sapply(div$members, function(pl) {pl$color})}})))
   #switch top 2 for championship
-  if (tolower(player[1]) != history[[i]]$champion) {player[1:2] = player[2:1]}
-  reduced[[i]] = data.frame(player, tier = sapply(division, substr, 1, 1), division, place, stringsAsFactors = FALSE)
+  if (tolower(player[1]) != history[[i]]$champion) {
+    player[1:2] = player[2:1]
+    wins[1:2] = wins[2:1]
+    losses[1:2] = losses[2:1]
+    pct[1:2] = pct[2:1]
+    standingsColor[1:2] = standingsColor[2:1]
+  }
+  reduced[[i]] = data.frame(player, tier = sapply(division, substr, 1, 1), division, place, wins, losses, pct, standingsColor, stringsAsFactors = FALSE)
 }
 
 names(reduced) = names(history)
@@ -47,13 +64,11 @@ for (p in proper) {
   history$player[tolower(history$player) == tolower(p)] = p
 }
 
-remove(reduced, frame, division, place, player)
+remove(reduced, frame, division, place, player, wins, losses, pct, standingsColor, proper)
 
 ##################################################
 #visualizations
 ##################################################
-
-library(ggplot2)
 
 #league division colors
 cols = c("A" = "#FF00FF", "B" = "#9900FF", "C" = "#0000FF", "D" = "#4A85E8", "E" = "#00FFFF", "F" = "#00FF00", "G" = "#FFFF00", "H" = "#FF9800", "I" = "#FF0000", "J" = "#980000")
@@ -65,9 +80,13 @@ cols = c("A" = "#FF00FF", "B" = "#9900FF", "C" = "#0000FF", "D" = "#4A85E8", "E"
 #produce table of player counts by tier per season
 
 counts = ddply(history, c("season","tier"), summarize, divisions = nunique(division), players = length(player))
-#s41 manually
-counts = rbind(counts, data.frame(season = rep(41,10), tier = LETTERS[1:10], divisions = c(1,2,4,4,8,15,15,31,31,31), players = c(6,12,24,24,48,90,90,186,186,186)))
-counts$lfrac = counts$players/rep(daply(counts, "season", function(df) sum(df$players)), table(counts$season))
+#preprocessed version
+#counts = fromJSON(url("https://raw.githubusercontent.com/randomtruffles/Dominion_League/master/_data/chart_counts.json"))
+#counts$season = as.numeric(counts$season)
+#counts$divisions = as.numeric(counts$divisions)
+#counts$players = as.numeric(counts$players)
+#counts$lfrac = as.numeric(counts$lfrac)
+
 
 back = function(uptier = "J", from = 1, to = max(counts$season), prop = FALSE, oldE = FALSE) {
   
@@ -199,17 +218,17 @@ ggsave("./transitions.png", height = 8, width = 11)
 #top of league power
 ##################################################
 
-tophist = history[history$tier < "D",]
+APlayers = unique(history$player[(history$tier == "A") | ((history$tier == "B") & (history$place == 1) & (history$season == 41))])
+tophist = history[history$player %in% APlayers,]
 
 #function giving points for a season
 seaspoint = function(player, season) {
-  interest = (tophist$player == player) & (tophist$season == season)
-  if (!any(interest)) {return (0)}
-  numPl = sum(tophist$division[(tophist$season == season)] == tophist$division[interest])
+  interest = (tophist$player == player) & (tophist$season == season) & (tophist$tier < "C")
+  if (!any(interest)) {return (-1)}
+  numPl = sum(history$division[(history$season == season)] == history$division[(history$player == player) & (history$season == season)])
   pointMap = c(
-    A1 = 10, A2 = 9, A3 = 8, A4 = 8, A5 = 7, A6 = 7,
-    B1 = 6, B2 = 5, B3 = 5, B4 = 5, B5 = 4, B6 = 4,
-    C1 = 3, C2 = 2, C3 = 2, C4 = 2, C5 = 1, C6 = 1
+    A1 = 10, A2 = 5, A3 = 3, A4 = 3, A5 = 1, A6 = 1,
+    B1 = 2, B2 = 0, B3 = 0, B4 = 0, B5 = -2, B6 = -2
   )
   if (numPl <= 6) {
     return (unname(pointMap[paste0(tophist$tier[interest],tophist$place[interest])]))
@@ -219,3 +238,30 @@ seaspoint = function(player, season) {
     return (unname(pointMap[paste0(tophist$tier[interest],r6equiv)]))
   }
 }
+
+tophist$seaspoints = aaply(tophist, 1, function(r) {seaspoint(r$player, r$season)}, .expand = F)
+s1Ap = history$player[(history$season == 1) & (history$tier == 'A')]
+coefs = ddply(tophist, "player", function(olddf) {
+  df = data.frame(player = olddf$player, season = olddf$season, points = olddf$seaspoints)
+  seasons = NULL
+  for (s in 1:41) {if (!(s %in% df$season)) {seasons = c(seasons, s)}}
+  if (length(seasons)) {df = (rbind(df, data.frame(player = df$player[1], season = seasons, points = 0)))}
+  df = df[order(df$season),]
+  ma = c(1,0.9,0.7,0.4)
+  coef = as.numeric(filter(c(numeric(length(ma)-1),df$points), ma, "convolution", 1))
+  df$coef = sapply(coef[!is.na(coef)], function(n) {max(n,0)})
+  if (df$player[1] %in% s1Ap) {df = rbind(data.frame(player = df$player[1], season = 0, points = 0, coef = 1), df)}
+  else {df = rbind(data.frame(player = df$player[1], season = 0, points = 0, coef = 0), df)}
+  df
+})
+coefsums = ddply(coefs, "season", function(df) {sum(df$coef)})
+coefs$prop = aaply(coefs, 1, function(r) {r$coef/coefsums$V1[coefsums$season == r$season]},.expand = F)
+coefs$prop[coefs$prop < 0.02] = 0
+propsums = ddply(coefs, "season", function(df) {sum(df$prop)})
+coefs$prop = aaply(coefs, 1, function(r) {r$prop/propsums$V1[propsums$season == r$season]},.expand = F)
+
+library(Polychrome)
+set.seed(12)
+playerCols = createPalette(length(unique(coefs$player)), "#000000")
+names(playerCols) = unique(coefs$player)
+ggplot() + geom_area(mapping = aes(x = season, y = prop, fill = player), data = coefs) + scale_fill_manual(values = playerCols) + coord_flip(xlim = c(41,0))
