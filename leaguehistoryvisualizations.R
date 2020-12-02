@@ -218,7 +218,7 @@ ggsave("./transitions.png", height = 8, width = 11)
 #top of league power
 ##################################################
 
-APlayers = unique(history$player[(history$tier == "A") | ((history$tier == "B") & (history$place == 1) & (history$season == 41))])
+APlayers = sort(unique(history$player[(history$tier == "A") | ((history$tier == "B") & (history$place == 1) & (history$season == 42))]))
 tophist = history[history$player %in% APlayers,]
 
 #function giving points for a season
@@ -244,7 +244,7 @@ s1Ap = history$player[(history$season == 1) & (history$tier == 'A')]
 coefs = ddply(tophist, "player", function(olddf) {
   df = data.frame(player = olddf$player, season = olddf$season, points = olddf$seaspoints)
   seasons = NULL
-  for (s in 1:41) {if (!(s %in% df$season)) {seasons = c(seasons, s)}}
+  for (s in 1:42) {if (!(s %in% df$season)) {seasons = c(seasons, s)}}
   if (length(seasons)) {df = (rbind(df, data.frame(player = df$player[1], season = seasons, points = 0)))}
   df = df[order(df$season),]
   ma = c(1,0.9,0.7,0.4)
@@ -260,8 +260,138 @@ coefs$prop[coefs$prop < 0.02] = 0
 propsums = ddply(coefs, "season", function(df) {sum(df$prop)})
 coefs$prop = aaply(coefs, 1, function(r) {r$prop/propsums$V1[propsums$season == r$season]},.expand = F)
 
-library(Polychrome)
-set.seed(12)
-playerCols = createPalette(length(unique(coefs$player)), "#000000")
-names(playerCols) = unique(coefs$player)
-ggplot() + geom_area(mapping = aes(x = season, y = prop, fill = player), data = coefs) + scale_fill_manual(values = playerCols) + coord_flip(xlim = c(41,0))
+chartNeighbors = lapply(APlayers, function(p) {character()})
+names(chartNeighbors) = APlayers
+for (season in 0:42) {
+  names = coefs$player[(coefs$prop > 0) & (coefs$season == season)]
+  for (i in 1:length(names)) {
+    if (i==1) {
+      chartNeighbors[[names[i]]] = c(chartNeighbors[[names[i]]], names[i+1])
+    } else if (i==length(names)) {
+      chartNeighbors[[names[i]]] = c(chartNeighbors[[names[i]]], names[i-1])
+    } else {
+      chartNeighbors[[names[i]]] = c(chartNeighbors[[names[i]]], names[i+1])
+      chartNeighbors[[names[i]]] = c(chartNeighbors[[names[i]]], names[i-1])
+    }
+  }
+}
+chartNeighbors = lapply(chartNeighbors, unique)
+chartNeighbors = chartNeighbors[order(sapply(chartNeighbors, function(p) {length(p)}), decreasing = T)]
+
+chartSeasonShare = lapply(APlayers, function(p) {character()})
+names(chartSeasonShare) = APlayers
+for (season in 0:42) {
+  names = coefs$player[(coefs$prop > 0) & (abs(coefs$season - season) < 2)]
+  for (i in 1:length(names)) {
+    chartSeasonShare[[names[i]]] = c(chartSeasonShare[[names[i]]], names)
+  }
+}
+chartSeasonShare = lapply(chartSeasonShare, unique)
+chartSeasonShare = chartSeasonShare[order(sapply(chartSeasonShare, function(p) {length(p)}), decreasing = T)]
+
+#functions since color picking will be in HSL color space
+HSLtoHex = function(hsl) {
+  if (any(is.na(hsl))) {return("#000000")}
+  hue = (hsl[1] %% 240)/40
+  sat = hsl[2]/240
+  lgt = hsl[3]/240
+  
+  chroma = sat * (1 - abs(2 * lgt - 1))
+  X = chroma * (1 - abs(-1 + hue %% 2))
+  
+  if (hue < 1) {
+    rgb = c(chroma, X, 0)
+  } else if (hue < 2) {
+    rgb = c(X, chroma, 0)
+  } else if (hue < 3) {
+    rgb = c(0, chroma, X)
+  } else if (hue < 4) {
+    rgb = c(0, X, chroma)
+  } else if (hue < 5) {
+    rgb = c(X, 0, chroma)
+  } else {
+    rgb = c(chroma, 0, X)
+  }
+  
+  rgb = sapply(rgb, function(k) {k+lgt-0.5*chroma})
+  rgb(rgb[1], rgb[2], rgb[3])
+}
+
+HextoHSL = function(hex) {
+  rgb = col2rgb(hex)/255
+  V = max(rgb)
+  chroma = V - min(rgb)
+  lig = V-0.5*chroma
+  if (chroma==0) {
+    hue = 0
+  } else if (V == rgb[1]) {
+    hue = (rgb[2]-rgb[3])/chroma
+    if (hue < 0) {hue = 6-hue}
+  } else if (V == rgb[2]) {
+    hue = 2+(rgb[3]-rgb[1])/chroma
+  } else {
+    hue = 4+(rgb[1]-rgb[2])/chroma
+  }
+  if ((lig == 0) | (lig == 1)) {
+    sat = 0
+  } else {
+    sat = (V-lig)/min(lig, 1-lig)
+  }
+  return(c(40*hue, 240*sat, 240*lig))
+}
+
+HSLdiff = function(hsl1, hsl2) {
+  a = abs(hsl1 - hsl2)
+  a[1] = min(a[1], 240-a[1])
+  a
+}
+
+playerCols = lapply(APlayers, function(p) {NA})
+names(playerCols) = APlayers
+
+#factor in requests
+playerCols[['tracer']] = c(7,1,1)
+playerCols[['xyrix']] = c(6,4,3)
+playerCols[['singletee']] = c(9,4,6)
+playerCols[['RTT']] = c(4,2,0)
+playerCols[['SamE']] = c(9,4,3)
+playerCols[['markus']] = c(0,2,3)
+
+set.seed(8)
+possibles = matrix(c(rep(0:11, each = 25), rep(0:4, each = 5, times = 12), rep(0:4, times = 60)),nrow = 300, ncol = 3)
+for (i in 1:length(APlayers)) {
+  player = names(chartNeighbors)[i]
+  neighbors = chartNeighbors[[player]]
+  #seasonShare = chartSeasonShare[[player]]
+  if (is.na(playerCols[[player]]) & length(neighbors)) {
+    neighborCols = aaply(neighbors[sapply(neighbors, function(p) {!is.na(playerCols[p])})],1, .fun = function(p) {playerCols[[p]]})
+    #seasonShareCols = aaply(seasonShare[sapply(seasonShare, function(p) {!is.na(playerCols[p])})],1, .fun = function(p) {playerCols[[p]]})
+    if (length(dim(neighborCols)) == 2) {
+      playerCols[[player]] = possibles[sample((1:300)[
+        apply(possibles, 1, function(r) {min(abs(r[1] - neighborCols[,1]), 12-abs(r[1] - neighborCols[,1])) > 1}) &
+          apply(possibles, 1, function(r) {!isTRUE(any(sapply(playerCols, function(c) {(r[1]==c[1]) & (all(abs(r[-1]-c[-1]) < 2))})))})
+        ],1),]
+    } else if (length(neighborCols) == 3) {
+      playerCols[[player]] = possibles[sample((1:300)[
+        (sapply(abs(possibles[,1] - neighborCols[1]), function(x) min(x,12-x))>1) &
+          apply(possibles, 1, function(r) {!isTRUE(any(sapply(playerCols, function(c) {(r[1]==c[1]) & (all(abs(r[-1]-c[-1]) < 2))})))})
+        ],1),]
+    } else {
+      playerCols[[player]] = possibles[sample((1:300)[
+          apply(possibles, 1, function(r) {!isTRUE(any(sapply(playerCols, function(c) {(r[1]==c[1]) & (all(abs(r[-1]-c[-1]) < 2))})))})
+        ],1),]
+    }
+  }
+}
+
+playerCols = sapply(playerCols, function(co) {HSLtoHex(c(20,35,20) * co + c(0,95,65) + runif(3,-5,5))})
+
+#assign requests
+playerCols[['tracer']] = "#284F8F"
+playerCols[['xyrix']] = "#00FFFF"
+playerCols[['singletee']] = "#BC9FFC"
+playerCols[['RTT']] = "#0F6419"
+playerCols[['SamE']] = "#911CFD"
+playerCols[['markus']] = "#DE2226"
+
+ggplot() + geom_area(mapping = aes(x = season, y = prop, fill = player), data = coefs) + scale_fill_manual(values = playerCols) + coord_flip(xlim = c(41,0), ylim = c(1,0))
